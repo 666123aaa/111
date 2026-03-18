@@ -2,12 +2,24 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>规训视角 - 空间层次增强版</title>
+    <title>规训视角 - 视频规训版</title>
     <style>
-    body { margin: 0; overflow: hidden; background-color: #1a1a1a; } /* 改成深灰色 */
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: "Microsoft YaHei", sans-serif; }
+        /* 引导点击层：解决浏览器禁止自动播放视频的问题 */
+        #start-mask {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); color: white; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100; cursor: pointer;
+        }
     </style>
 </head>
 <body>
+    <div id="start-mask">
+        <h2 style="font-weight: lighter; letter-spacing: 5px;">点击进入监视视角</h2>
+        <p style="font-size: 12px; opacity: 0.5;">CLICK TO START MONITORING</p>
+    </div>
+
 <script type="importmap">
     {
         "imports": {
@@ -16,56 +28,71 @@
         }
     }
 </script>
+
 <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { VRButton } from 'three/addons/webxr/VRButton.js';
 
-    let scene, camera, renderer, mesh, controls, layers = [];
+    let scene, camera, renderer, video, controls;
+    const mask = document.getElementById('start-mask');
 
-    init();
+    // 点击后才启动，防止视频无法播放
+    mask.addEventListener('click', () => {
+        mask.style.display = 'none';
+        init();
+    });
 
     function init() {
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(85, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 0, 0.1); 
 
-        const loader = new THREE.TextureLoader();
+        // 1. 视频纹理配置 (11.mp4)
+        video = document.createElement('video');
+        video.src = '11.mp4'; 
+        video.loop = true;
+        video.muted = true; // 必须静音，Pico 才能秒开
+        video.playsInline = true;
+        video.play();
+
+        const videoTexture = new THREE.VideoTexture(video);
+        videoTexture.colorSpace = THREE.SRGBColorSpace;
         
-        // 1. 底层：你的原图 (1.png)
+        // 保留你要求的画质增强参数
+        videoTexture.minFilter = THREE.LinearFilter;
+        videoTexture.magFilter = THREE.LinearFilter;
+
+        // 2. 视频球体
         const geometry = new THREE.SphereGeometry(500, 64, 32);
         geometry.scale(-1, 1, 1);
-        loader.load('1.png', (texture) => {
-            texture.colorSpace = THREE.SRGBColorSpace;
+        const material = new THREE.MeshBasicMaterial({ map: videoTexture });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.rotation.y = -Math.PI / 2;
+        scene.add(mesh);
 
-            // --- 新增：提升画质的参数 ---
-    texture.minFilter = THREE.LinearFilter; // 减少远处的锯齿
-    texture.magFilter = THREE.LinearFilter; // 增加近处的平滑度
-    texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // 开启最大各向异性过滤，斜着看更清晰
-    // -------------------------
-            const material = new THREE.MeshBasicMaterial({ map: texture });
-            mesh = new THREE.Mesh(geometry, material);
-            mesh.rotation.y = -Math.PI / 2;
-            scene.add(mesh);
-        });
+        // 3. 背后遮罩文字 (往前走，别回头)
+        const canvas = document.createElement('canvas');
+        canvas.width = 1024; canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'white';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 80px "Microsoft YaHei", sans-serif';
+        ctx.fillText('往前走，别回头', 512, 220);
+        ctx.font = '40px Arial';
+        ctx.fillText("GO FORWARD, DON'T LOOK BACK", 512, 320);
 
+        const textTex = new THREE.CanvasTexture(canvas);
+        const textGeo = new THREE.PlaneGeometry(20, 10);
+        const textMat = new THREE.MeshBasicMaterial({ map: textTex, side: THREE.DoubleSide });
+        const textMesh = new THREE.Mesh(textGeo, textMat);
+        textMesh.position.set(0, 0, 15); // 放在相机正背后
+        textMesh.rotation.y = Math.PI; 
+        scene.add(textMesh);
 
-        
-
-        // 2. 核心补救：添加一个“近景层”来制造立体感
-        // 我们在相机前面放一个半透明的深色遮罩，模拟婴儿床边缘的模糊阴影
-        const overlayGeo = new THREE.TorusGeometry(2, 0.5, 16, 100);
-        const overlayMat = new THREE.MeshBasicMaterial({ 
-            color: 0x000000, 
-            transparent: true, 
-            opacity: 0,
-            
-            side: THREE.DoubleSide 
-        });
-        const overlay = new THREE.Mesh(overlayGeo, overlayMat);
-        overlay.position.z = -2; // 放在你眼前
-        scene.add(overlay);
-
+        // 4. 渲染器配置 (保留高画质参数)
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -73,50 +100,38 @@
         document.body.appendChild(renderer.domElement);
         document.body.appendChild(VRButton.createButton(renderer));
 
+        // 5. 电脑端控制器
         controls = new OrbitControls(camera, renderer.domElement);
         controls.enableZoom = false;
-        controls.rotateSpeed = -1.5; // 提高灵敏度
-        controls.enableDamping = true; // 增加丝滑感
+        controls.rotateSpeed = -1.0; 
+        controls.enableDamping = true;
         
-        // 锁死视野，防止黑边
-        controls.minAzimuthAngle = -Math.PI / 3.5;
-        controls.maxAzimuthAngle = Math.PI / 3.5;
-        controls.minPolarAngle = 1.0;
-        controls.maxPolarAngle = 1.9;
-
         renderer.setAnimationLoop(animate);
     }
 
-   function animate() {
-    const time = Date.now() * 0.001;
+    function animate() {
+        const time = Date.now() * 0.001;
 
-    // 1. 如果是在 Pico 4 里面看 (VR 模式)
-    if (renderer.xr.isPresenting) {
-        // 设置限制角度（PI/2.5 约为 72度，左右加起来 144度，能看到大部分正面但转不到脑后）
-        const limit = Math.PI / 2.1; 
-        
-        // 关键：在渲染画面之前，强行把“想看后面”的相机旋转拽回来
-        if (camera.rotation.y > limit) {
-            camera.rotation.y = limit; 
-        } else if (camera.rotation.y < -limit) {
-            camera.rotation.y = -limit;
+        if (renderer.xr.isPresenting) {
+            // 保留你最满意的 144度 (PI/2.5) 视角锁定
+            const limit = Math.PI / 2.5; 
+            
+            if (camera.rotation.y > limit) camera.rotation.y = limit; 
+            if (camera.rotation.y < -limit) camera.rotation.y = -limit;
+            
+            // 限制抬头低头，防止穿帮
+            if (camera.rotation.x > 0.4) camera.rotation.x = 0.4;
+            if (camera.rotation.x < -0.4) camera.rotation.x = -0.4;
+            
+        } else {
+            if(controls) {
+                camera.position.y = Math.sin(time * 0.4) * 0.03;
+                camera.position.x = Math.cos(time * 0.3) * 0.01;
+                controls.update(); 
+            }
         }
-        
-        // 如果想让低头也穿帮不了，可以加上这两行限制上下看的高度
-        if (camera.rotation.x > 0.5) camera.rotation.x = 0.5; // 限制抬头
-        if (camera.rotation.x < -0.5) camera.rotation.x = -0.5; // 限制低头
-        
-    } else {
-        // 2. 如果是在电脑浏览器上看 (非 VR 模式)
-        // 保持你原有的身体微调效果，增加“呼吸感”
-        camera.position.y = Math.sin(time * 0.4) * 0.03;
-        camera.position.x = Math.cos(time * 0.3) * 0.01;
-        controls.update(); 
+        renderer.render(scene, camera);
     }
-
-    // 最后执行渲染：不管是 VR 还是网页，都按上面修正后的视角出图
-    renderer.render(scene, camera);
-}
 </script>
 </body>
 </html>
