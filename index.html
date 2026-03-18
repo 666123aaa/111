@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>规训视角 - 空间层次增强版</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
+    body { margin: 0; overflow: hidden; background-color: #1a1a1a; } /* 改成深灰色 */
     </style>
 </head>
 <body>
@@ -37,11 +37,20 @@
         geometry.scale(-1, 1, 1);
         loader.load('1.png', (texture) => {
             texture.colorSpace = THREE.SRGBColorSpace;
+
+            // --- 新增：提升画质的参数 ---
+    texture.minFilter = THREE.LinearFilter; // 减少远处的锯齿
+    texture.magFilter = THREE.LinearFilter; // 增加近处的平滑度
+    texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // 开启最大各向异性过滤，斜着看更清晰
+    // -------------------------
             const material = new THREE.MeshBasicMaterial({ map: texture });
             mesh = new THREE.Mesh(geometry, material);
             mesh.rotation.y = -Math.PI / 2;
             scene.add(mesh);
         });
+
+
+        
 
         // 2. 核心补救：添加一个“近景层”来制造立体感
         // 我们在相机前面放一个半透明的深色遮罩，模拟婴儿床边缘的模糊阴影
@@ -73,21 +82,41 @@
         controls.minAzimuthAngle = -Math.PI / 3.5;
         controls.maxAzimuthAngle = Math.PI / 3.5;
         controls.minPolarAngle = 1.0;
-        controls.maxPolarAngle = 2.2;
+        controls.maxPolarAngle = 1.9;
 
         renderer.setAnimationLoop(animate);
     }
 
-    function animate() {
-        const time = Date.now() * 0.001;
-        if (!renderer.xr.isPresenting) {
-            // 模拟身体的微小晃动
-            camera.position.y = Math.sin(time * 0.4) * 0.03;
-            camera.position.x = Math.cos(time * 0.3) * 0.01;
-            controls.update(); 
+   function animate() {
+    const time = Date.now() * 0.001;
+
+    // 1. 如果是在 Pico 4 里面看 (VR 模式)
+    if (renderer.xr.isPresenting) {
+        // 设置限制角度（PI/2.5 约为 72度，左右加起来 144度，能看到大部分正面但转不到脑后）
+        const limit = Math.PI / 2.1; 
+        
+        // 关键：在渲染画面之前，强行把“想看后面”的相机旋转拽回来
+        if (camera.rotation.y > limit) {
+            camera.rotation.y = limit; 
+        } else if (camera.rotation.y < -limit) {
+            camera.rotation.y = -limit;
         }
-        renderer.render(scene, camera);
+        
+        // 如果想让低头也穿帮不了，可以加上这两行限制上下看的高度
+        if (camera.rotation.x > 0.5) camera.rotation.x = 0.5; // 限制抬头
+        if (camera.rotation.x < -0.5) camera.rotation.x = -0.5; // 限制低头
+        
+    } else {
+        // 2. 如果是在电脑浏览器上看 (非 VR 模式)
+        // 保持你原有的身体微调效果，增加“呼吸感”
+        camera.position.y = Math.sin(time * 0.4) * 0.03;
+        camera.position.x = Math.cos(time * 0.3) * 0.01;
+        controls.update(); 
     }
+
+    // 最后执行渲染：不管是 VR 还是网页，都按上面修正后的视角出图
+    renderer.render(scene, camera);
+}
 </script>
 </body>
 </html>
